@@ -80,13 +80,13 @@ async def on_message(message):
         total = c.fetchone()[0]
         conn.close()
         await message.channel.send(
-            f'🔔 Counter-bot has been pinged {total} time' + ('s' if total != 1 else '') + '!'  
+            f'🔔 Counter-bot has been pinged {total} time' + ('s' if total != 1 else '') + '!'
         )
 
     # Ensure commands still work
     await bot.process_commands(message)
 
-@bot.command(name='pings')
+@bot.command(name='pings', aliases=['ping'])
 async def pings(ctx):
     """Show total pings to the bot."""
     conn = sqlite3.connect(db_path)
