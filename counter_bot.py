@@ -1,57 +1,110 @@
-# Discord bot that counts how many times it has been mentioned (pinged).
-# The count is stored in an SQLite database to persist across restarts.
+# counter_bot.py
+# Counter-bot: Discord ping counter running on Railway
 
+import os
 import sqlite3
 import discord
+from discord.ext import commands
 
-# Set up intents to receive message content (required for mention detection):contentReference[oaicite:7]{index=7}.
+# Load bot token from environment
+DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
+if not DISCORD_TOKEN:
+    raise RuntimeError('DISCORD_TOKEN environment variable not set')
+
+# Database path
+DB_PATH = 'pings.sqlite'
+
+# Initialize SQLite database
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS pings (
+            user_id INTEGER PRIMARY KEY,
+            count INTEGER NOT NULL DEFAULT 0
+        )
+        '''
+    )
+    conn.commit()
+    conn.close()
+
+# Bot intents: message content and members
 intents = discord.Intents.default()
 intents.message_content = True
+intents.members = True
 
-client = discord.Client(intents=intents)
+# Create bot instance
+description = 'Counter-bot: Tracks how many times users mention the bot.'
+bot = commands.Bot(command_prefix='!', description=description, intents=intents)
 
-# Initialize SQLite database and ensure a table exists to store the ping count.
-db = sqlite3.connect('pings.sqlite')
-cursor = db.cursor()
-# Create a table with one row (id=1) to store the ping count.
-cursor.execute('CREATE TABLE IF NOT EXISTS pings (id INTEGER PRIMARY KEY, count INTEGER)')
-# Ensure there is a default row with id=1 if none exists.
-cursor.execute('INSERT OR IGNORE INTO pings (id, count) VALUES (?, ?)', (1, 0))
-db.commit()
-db.close()
-
-@client.event
+@bot.event
 async def on_ready():
-    print(f'Logged in as {client.user} (ID: {client.user.id})')
-    print('Ready to count mentions.')
+    print(f'✔️ Logged in as {bot.user} (ID: {bot.user.id})')
 
-@client.event
+@bot.event
 async def on_message(message):
-    # Ignore messages sent by the bot itself to prevent feedback loops:contentReference[oaicite:8]{index=8}.
-    if message.author == client.user:
+    # Ignore the bot's own messages
+    if message.author.bot:
         return
 
-    # Check if the bot is mentioned in the message:contentReference[oaicite:9]{index=9}.
-    if client.user in message.mentions:
-        # Open a new database connection for this event.
-        conn = sqlite3.connect('pings.sqlite')
+    # If bot is mentioned, update and reply with count
+    if bot.user in message.mentions:
+        user_id = message.author.id
+        conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
-        # Get current ping count.
-        cursor.execute('SELECT count FROM pings WHERE id = ?', (1,))
+        cursor.execute('SELECT count FROM pings WHERE user_id = ?', (user_id,))
         row = cursor.fetchone()
         if row:
             count = row[0] + 1
-            # Update the count in the database.
-            cursor.execute('UPDATE pings SET count = ? WHERE id = ?', (count, 1))
+            cursor.execute('UPDATE pings SET count = ? WHERE user_id = ?', (count, user_id))
         else:
-            # If somehow the row is missing, create it.
             count = 1
-            cursor.execute('INSERT INTO pings (id, count) VALUES (?, ?)', (1, count))
+            cursor.execute('INSERT INTO pings (user_id, count) VALUES (?, ?)', (user_id, count))
         conn.commit()
         conn.close()
 
-        # Respond with the current total ping count.
-        await message.channel.send(f'I have been mentioned {count} times so far!')
+        await message.channel.send(
+            f'<@{user_id}> You have pinged Counter-bot {count} time{"s" if count != 1 else ""}!'
+        )
 
-# Start the bot (replace 'YOUR_BOT_TOKEN' with your actual bot token).
-client.run('MTQwMTY3NzA2NTkyOTA5NzIyNg.GTLKFe.JaM1taQ8hjLlupzGluVR993HEMnMZ5wUPSG-Vg')
+    # Allow commands to be processed
+    await bot.process_commands(message)
+
+@bot.command(name='pings')
+async def pings(ctx, member: discord.Member = None):
+    """Show how many times a user has pinged the bot."""
+    target = member or ctx.author
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('SELECT count FROM pings WHERE user_id = ?', (target.id,))
+    row = cursor.fetchone()
+    conn.close()
+    count = row[0] if row else 0
+    await ctx.send(f'<@{target.id}> has pinged Counter-bot {count} time{"s" if count != 1 else ""}.')
+
+if __name__ == '__main__':
+    init_db()
+
+    # Start a minimal web server to satisfy Railway's web process requirements
+    from aiohttp import web
+
+    async def handle(request):
+        return web.Response(text="Counter-bot is running.")
+
+    app = web.Application()
+    app.add_routes([web.get('/', handle)])
+
+    async def start_web():
+        runner = web.AppRunner(app)
+        await runner.setup()
+        port = int(os.getenv('PORT', 8080))
+        site = web.TCPSite(runner, '0.0.0.0', port)
+        await site.start()
+        print(f"🌐 Web server running on port {port}")
+
+    # Schedule web server startup on the bot's event loop
+    bot.loop.create_task(start_web())
+
+    # Run the Discord bot
+    bot.run(DISCORD_TOKEN)
