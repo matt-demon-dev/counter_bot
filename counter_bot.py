@@ -3,8 +3,10 @@
 
 import os
 import sqlite3
+import asyncio
 import discord
 from discord.ext import commands
+from aiohttp import web
 
 # Load bot token from environment
 DISCORD_TOKEN = os.getenv('DISCORD_TOKEN')
@@ -29,14 +31,34 @@ def init_db():
     conn.commit()
     conn.close()
 
-# Bot intents: message content and members
+# Minimal web server for Railway health checks
+def create_web_app():
+    app = web.Application()
+    async def handle(request):
+        return web.Response(text="Counter-bot is running.")
+    app.add_routes([web.get('/', handle)])
+    return app
+
+# Subclass Bot to start web server in setup_hook\class CounterBot(commands.Bot):
+    async def setup_hook(self):
+        # start aiohttp server on PORT
+        app = create_web_app()
+        runner = web.AppRunner(app)
+        await runner.setup()
+        port = int(os.getenv('PORT', 8080))
+        site = web.TCPSite(runner, '0.0.0.0', port)
+        await site.start()
+        print(f"🌐 Web server running on port {port}")
+        # continue usual startup
+        await super().setup_hook()
+
+# Define intents
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
-# Create bot instance
-description = 'Counter-bot: Tracks how many times users mention the bot.'
-bot = commands.Bot(command_prefix='!', description=description, intents=intents)
+# Instantiate bot
+bot = CounterBot(command_prefix='!', description='Counter-bot: Tracks pings.', intents=intents)
 
 @bot.event
 async def on_ready():
@@ -44,11 +66,8 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    # Ignore the bot's own messages
     if message.author.bot:
         return
-
-    # If bot is mentioned, update and reply with count
     if bot.user in message.mentions:
         user_id = message.author.id
         conn = sqlite3.connect(DB_PATH)
@@ -63,17 +82,11 @@ async def on_message(message):
             cursor.execute('INSERT INTO pings (user_id, count) VALUES (?, ?)', (user_id, count))
         conn.commit()
         conn.close()
-
-        await message.channel.send(
-            f'<@{user_id}> You have pinged Counter-bot {count} time{"s" if count != 1 else ""}!'
-        )
-
-    # Allow commands to be processed
+        await message.channel.send(f'<@{user_id}> You have pinged Counter-bot {count} time{"s" if count != 1 else ""}!')
     await bot.process_commands(message)
 
 @bot.command(name='pings')
 async def pings(ctx, member: discord.Member = None):
-    """Show how many times a user has pinged the bot."""
     target = member or ctx.author
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -85,26 +98,4 @@ async def pings(ctx, member: discord.Member = None):
 
 if __name__ == '__main__':
     init_db()
-
-    # Start a minimal web server to satisfy Railway's web process requirements
-    from aiohttp import web
-
-    async def handle(request):
-        return web.Response(text="Counter-bot is running.")
-
-    app = web.Application()
-    app.add_routes([web.get('/', handle)])
-
-    async def start_web():
-        runner = web.AppRunner(app)
-        await runner.setup()
-        port = int(os.getenv('PORT', 8080))
-        site = web.TCPSite(runner, '0.0.0.0', port)
-        await site.start()
-        print(f"🌐 Web server running on port {port}")
-
-    # Schedule web server startup on the bot's event loop
-    bot.loop.create_task(start_web())
-
-    # Run the Discord bot
     bot.run(DISCORD_TOKEN)
