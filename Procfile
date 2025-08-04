@@ -1,1 +1,1 @@
-start: python counter_bot.py
+web: python counter_bot.py
