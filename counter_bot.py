@@ -54,11 +54,11 @@ class CounterBot(commands.Bot):
         await super().setup_hook()
 
 # Define intents
-token_intents = discord.Intents.default()
-token_intents.message_content = True
+intents = discord.Intents.default()
+intents.message_content = True
 
 # Instantiate bot
-bot = CounterBot(command_prefix='!', description='Counter-bot: Tracks total pings.', intents=token_intents)
+bot = CounterBot(command_prefix='!', description='Counter-bot: Tracks total pings.', intents=intents)
 
 @bot.event
 async def on_ready():
@@ -66,11 +66,12 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    # ignore bots
-t    if message.author.bot:
+    # Ignore bots
+    if message.author.bot:
         return
 
-    # if mentioned, increment global count\ n    if bot.user in message.mentions:
+    # If bot is mentioned, increment global count
+    if bot.user in message.mentions:
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
         c.execute('UPDATE counter SET count = count + 1 WHERE id = 1')
@@ -78,8 +79,11 @@ t    if message.author.bot:
         c.execute('SELECT count FROM counter WHERE id = 1')
         total = c.fetchone()[0]
         conn.close()
-        await message.channel.send(f'🔔 Counter-bot has been pinged {total} time{"s" if total != 1 else ""}!')
+        await message.channel.send(
+            f'🔔 Counter-bot has been pinged {total} time' + ('s' if total != 1 else '') + '!'  
+        )
 
+    # Ensure commands still work
     await bot.process_commands(message)
 
 @bot.command(name='pings')
@@ -90,7 +94,9 @@ async def pings(ctx):
     c.execute('SELECT count FROM counter WHERE id = 1')
     total = c.fetchone()[0]
     conn.close()
-    await ctx.send(f'🔔 Counter-bot has been pinged {total} time{"s" if total != 1 else ""}.')
+    await ctx.send(
+        f'🔔 Counter-bot has been pinged {total} time' + ('s' if total != 1 else '') + '.'
+    )
 
 if __name__ == '__main__':
     init_db()
