@@ -3,7 +3,6 @@
 
 import os
 import sqlite3
-import asyncio
 import discord
 from discord.ext import commands
 from aiohttp import web
@@ -39,9 +38,10 @@ def create_web_app():
     app.add_routes([web.get('/', handle)])
     return app
 
-# Subclass Bot to start web server in setup_hook\class CounterBot(commands.Bot):
+# Subclass commands.Bot to start web server in setup_hook
+class CounterBot(commands.Bot):
     async def setup_hook(self):
-        # start aiohttp server on PORT
+        # Start aiohttp server on assigned PORT
         app = create_web_app()
         runner = web.AppRunner(app)
         await runner.setup()
@@ -49,7 +49,7 @@ def create_web_app():
         site = web.TCPSite(runner, '0.0.0.0', port)
         await site.start()
         print(f"🌐 Web server running on port {port}")
-        # continue usual startup
+        # Call parent setup_hook if needed
         await super().setup_hook()
 
 # Define intents
@@ -68,6 +68,7 @@ async def on_ready():
 async def on_message(message):
     if message.author.bot:
         return
+
     if bot.user in message.mentions:
         user_id = message.author.id
         conn = sqlite3.connect(DB_PATH)
@@ -83,6 +84,8 @@ async def on_message(message):
         conn.commit()
         conn.close()
         await message.channel.send(f'<@{user_id}> You have pinged Counter-bot {count} time{"s" if count != 1 else ""}!')
+
+    # Ensure commands still work
     await bot.process_commands(message)
 
 @bot.command(name='pings')
